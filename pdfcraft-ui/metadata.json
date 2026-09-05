@@ -1,0 +1,6 @@
+{
+  "name": "PdfCraft",
+  "description": "Automate and render PDFs from templates with dynamic placeholders, workflow integrations, and template management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
