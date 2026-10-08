@@ -3,27 +3,36 @@ import { useRouter, Link } from "../../lib/router";
 import { useAuth } from "../../lib/authContext";
 import { ApiError } from "../../lib/api";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const auth = useAuth();
-  const [email, setEmail] = useState("demo@pdfcraft.dev");
-  const [password, setPassword] = useState("Demo1234!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setIsAuthenticating(true);
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setIsSubmitting(true);
     try {
-      await auth.login(email.trim(), password);
+      await auth.register(email.trim(), password);
       router.push("/dashboard");
     } catch (err) {
       const message =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Login failed";
+        err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Registration failed";
       setError(message);
-      setIsAuthenticating(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -43,7 +52,7 @@ export default function LoginPage() {
           <div className="flex flex-col w-full">
             <div className="flex flex-col text-center mb-space-6">
               <h1 className="font-heading-lg text-heading-lg text-gray-700 font-semibold tracking-tight">
-                Sign in to PdfCraft
+                Create your PdfCraft account
               </h1>
               <p className="font-body-sm text-body-sm text-gray-500 mt-space-1">
                 Render PDFs from templates with dynamic placeholders.
@@ -75,12 +84,12 @@ export default function LoginPage() {
                   <input
                     id="password"
                     className="w-full h-9 pl-space-3 pr-10 bg-gray-0 text-gray-700 font-body text-body rounded-lg shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all duration-150 border border-border"
-                    placeholder="••••••••••••"
+                    placeholder="Minimum 8 characters"
                     required
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
+                    autoComplete="new-password"
                   />
                   <button
                     aria-label="Toggle password visibility"
@@ -95,6 +104,22 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              <div className="flex flex-col gap-space-1">
+                <label className="font-label text-label text-gray-600" htmlFor="confirm">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirm"
+                  className="w-full h-9 px-space-3 bg-gray-0 text-gray-700 font-body text-body rounded-lg shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all duration-150 border border-border"
+                  placeholder="Repeat your password"
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+
               {error && (
                 <div className="px-space-3 py-space-2 rounded-lg bg-red-50 text-red-700 text-body-sm border border-red-200">
                   {error}
@@ -103,10 +128,10 @@ export default function LoginPage() {
 
               <button
                 className="mt-space-2 w-full h-10 px-space-4 font-label text-label rounded-lg font-medium shadow-sm transition-all duration-150 flex items-center justify-center gap-space-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 cursor-pointer bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
-                disabled={isAuthenticating}
+                disabled={isSubmitting}
                 type="submit"
               >
-                {isAuthenticating ? (
+                {isSubmitting ? (
                   <>
                     <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -116,11 +141,11 @@ export default function LoginPage() {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                       ></path>
                     </svg>
-                    <span>Signing in...</span>
+                    <span>Creating account...</span>
                   </>
                 ) : (
                   <>
-                    <span>Sign In</span>
+                    <span>Create Account</span>
                     <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
                   </>
                 )}
@@ -128,11 +153,9 @@ export default function LoginPage() {
             </form>
 
             <p className="mt-space-6 text-center font-caption text-caption text-gray-500">
-              Demo credentials are pre-filled. Click Sign In to continue.
-              <br />
-              Don&apos;t have an account?{" "}
-              <Link href="/register" className="text-brand-600 hover:text-brand-700 font-medium">
-                Create one
+              Already have an account?{" "}
+              <Link href="/login" className="text-brand-600 hover:text-brand-700 font-medium">
+                Sign in
               </Link>
             </p>
           </div>

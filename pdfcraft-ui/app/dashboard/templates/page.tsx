@@ -1,314 +1,426 @@
-import React, { useState } from 'react';
-import { useRouter } from '../../../lib/router';
-import { INITIAL_MY_TEMPLATES, INITIAL_BLUEPRINTS } from '../../../data/mockData';
-import { Template, Blueprint } from '../../../types';
-import { TemplateRendererModal } from '../../../components/TemplateRendererModal';
+import React, { useEffect, useState } from "react";
+import { useRouter, Link } from "../../../lib/router";
+import {
+  ApiError,
+  CreateTemplateInput,
+  Template,
+  TemplateWithHtml,
+  UpdateTemplateInput,
+  createTemplate,
+  deleteTemplate,
+  getTemplate,
+  listTemplates,
+  updateTemplate,
+} from "../../../lib/api";
+import { useAuth } from "../../../lib/authContext";
+import { DashboardLayout } from "../layout";
+import { TemplateRendererModal } from "../../../components/TemplateRendererModal";
 
-export default function TemplatesPage() {
+const STARTER_HTML = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><title>Template</title></head>
+  <body>
+    <h1>Hello {{placeholder_1}}</h1>
+    <p>This is a sample template. Use {{placeholder_2}} anywhere in the HTML.</p>
+  </body>
+</html>`;
+
+function TemplatesInner() {
   const router = useRouter();
-  const [templates, setTemplates] = useState<Template[]>(INITIAL_MY_TEMPLATES);
-  const [blueprints] = useState<Blueprint[]>(INITIAL_BLUEPRINTS);
-  const [searchFilter, setSearchFilter] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedBlueprintCategory, setSelectedBlueprintCategory] = useState('All');
-  const [activeModalTemplate, setActiveModalTemplate] = useState<Template | null>(null);
-  const [cloneNotification, setCloneNotification] = useState<string | null>(null);
+  const auth = useAuth();
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<TemplateWithHtml | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [renderTarget, setRenderTarget] = useState<Template | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const filteredTemplates = templates.filter((t) => {
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      t.variables.some((v) => v.toLowerCase().includes(searchFilter.toLowerCase()));
-    const matchesCategory = selectedCategory === 'All' || t.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { templates } = await listTemplates();
+      setTemplates(templates);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        auth.logout();
+        router.replace("/login");
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Failed to load templates");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const filtered = templates.filter((t) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      t.title.toLowerCase().includes(q) ||
+      (t.description || "").toLowerCase().includes(q) ||
+      t.variables.some((v) => v.toLowerCase().includes(q))
+    );
   });
 
-  const handleClone = (bp: Blueprint) => {
-    const newTemplate: Template = {
-      id: `tmpl_${Date.now()}`,
-      title: bp.title.length > 22 ? bp.title.slice(0, 19) + '...' : bp.title,
-      description: bp.description,
-      version: 'v1.0',
-      status: 'Active',
-      variables: bp.tags.map((t) => `{{${t.toLowerCase().replace(/[^a-z0-9]/g, '_')}}}`),
-      renders: '0',
-      updatedAt: 'Just now',
-      previewType: bp.previewVariant === 'invoice' ? 'invoice' : bp.previewVariant === 'contract' ? 'contract' : 'shipping',
-      category: 'Invoices',
-    };
-    setTemplates([newTemplate, ...templates]);
-    setCloneNotification(`Cloned "${bp.title}" into your workspace!`);
-    setTimeout(() => setCloneNotification(null), 3000);
+  const openEdit = async (t: Template) => {
+    setBusy(true);
+    try {
+      const { template } = await getTemplate(t.id);
+      setEditing(template);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to load template");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this template? This cannot be undone.")) return;
+    try {
+      await deleteTemplate(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    }
   };
 
   return (
-    <div className="flex flex-col gap-8 max-w-7xl mx-auto">
-      {/* Toast Notification */}
-      {cloneNotification && (
-        <div className="fixed top-16 right-8 z-50 bg-gray-700 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-gray-600 animate-in fade-in slide-in-from-top-2">
-          <span className="material-symbols-outlined text-success-500 text-[18px]">check_circle</span>
-          <span className="font-label text-label">{cloneNotification}</span>
-        </div>
-      )}
-
-      {/* Header with Search and Actions */}
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="font-heading-lg text-heading-lg text-gray-700 font-semibold tracking-tight">
-              PDF Templates Catalog
-            </h1>
-            <span className="font-caption text-caption bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-mono font-medium">
-              18 Active
-            </span>
-          </div>
+          <h1 className="font-heading-lg text-heading-lg text-gray-700 font-semibold tracking-tight">
+            Templates
+          </h1>
           <p className="font-body-sm text-body-sm text-gray-500 mt-1">
-            Build, edit, and bind dynamic variables to vector PDF templates with automatic schema checks.
+            Manage your HTML templates and render them into PDFs.
           </p>
         </div>
-
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5 transition-colors cursor-pointer"
+          <Link
+            href="/dashboard"
+            className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5"
           >
             <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-            <span>Dashboard Overview</span>
-          </button>
+            <span>Dashboard</span>
+          </Link>
           <button
-            onClick={() => router.push('/dashboard/builder')}
-            className="h-8 px-3.5 rounded-lg bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-label text-label font-medium transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+            onClick={() => setCreating(true)}
+            className="h-8 px-3.5 rounded-lg bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white font-label text-label font-medium transition-colors shadow-sm flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-[16px]">add_box</span>
-            <span>Create Template</span>
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            <span>New Template</span>
           </button>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-surface-card border border-border rounded-xl p-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          {['All', 'Invoices', 'Contracts', 'Logistics', 'Tickets'].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg font-label text-label transition-colors cursor-pointer ${
-                selectedCategory === cat
-                  ? 'bg-brand-50 text-brand-600 font-medium'
-                  : 'text-gray-600 hover:bg-surface-hover hover:text-gray-800'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        <div className="relative w-full md:w-72">
+      <div className="bg-surface-card border border-border rounded-xl p-3 flex items-center gap-3">
+        <div className="relative flex-1">
           <span className="material-symbols-outlined absolute left-2.5 top-2 text-[16px] text-gray-400 pointer-events-none">
             search
           </span>
           <input
             type="text"
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Filter templates or {{tags}}..."
-            className="w-full h-8 pl-8 pr-3 text-body-sm bg-surface-page border border-border rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-500 transition-all"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter by title, description, or variable name..."
+            className="w-full h-8 pl-8 pr-3 text-body-sm bg-surface-page border border-border rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-500"
           />
         </div>
+        <span className="font-caption text-caption text-gray-500">
+          {filtered.length} of {templates.length}
+        </span>
       </div>
 
-      {/* Templates Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredTemplates.map((template) => (
-          <div
-            key={template.id}
-            className="bg-surface-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-xs hover:border-brand-400 hover:shadow-sm transition-all group"
-          >
-            <div>
-              {/* Mini preview canvas */}
-              <div
-                onClick={() => setActiveModalTemplate(template)}
-                className="h-32 rounded-lg bg-surface-page border border-border flex items-center justify-center p-3 relative overflow-hidden mb-3.5 cursor-pointer group-hover:border-brand-300 transition-colors"
+      {loading ? (
+        <div className="bg-surface-card border border-border rounded-xl p-8 text-center text-gray-500">
+          Loading templates...
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-body-sm">
+          {error}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-surface-card border border-border rounded-xl p-12 text-center flex flex-col items-center gap-3">
+          <span className="material-symbols-outlined text-[40px] text-gray-300">description</span>
+          {templates.length === 0 ? (
+            <>
+              <p className="text-gray-700 font-medium">No templates yet</p>
+              <p className="text-gray-500 text-body-sm">Create your first template to render PDFs.</p>
+              <button
+                onClick={() => setCreating(true)}
+                className="mt-2 h-9 px-4 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-label text-label font-medium"
               >
-                {template.previewType === 'invoice' ? (
-                  <div className="w-20 h-24 bg-white rounded shadow-xs border border-gray-200 p-2 flex flex-col gap-1.5 group-hover:scale-105 transition-transform">
-                    <div className="w-6 h-1.5 bg-brand-500 rounded-xs"></div>
-                    <div className="w-14 h-1 bg-gray-200 rounded-xs"></div>
-                    <div className="w-10 h-1 bg-gray-200 rounded-xs"></div>
-                    <div className="mt-auto flex justify-between items-center">
-                      <div className="w-4 h-1 bg-gray-300 rounded-xs"></div>
-                      <div className="w-4 h-1.5 bg-success-500 rounded-xs"></div>
-                    </div>
-                  </div>
-                ) : template.previewType === 'contract' ? (
-                  <div className="w-20 h-24 bg-white rounded shadow-xs border border-gray-200 p-2 flex flex-col gap-1.5 group-hover:scale-105 transition-transform">
-                    <div className="w-8 h-1.5 bg-gray-700 rounded-xs"></div>
-                    <div className="w-16 h-1 bg-gray-200 rounded-xs"></div>
-                    <div className="w-14 h-1 bg-gray-200 rounded-xs"></div>
-                    <div className="w-12 h-1 bg-gray-200 rounded-xs"></div>
-                    <div className="mt-auto border-t border-dashed border-gray-300 pt-1 flex justify-between items-center">
-                      <span className="material-symbols-outlined text-[10px] text-brand-500">draw</span>
-                      <div className="w-6 h-1 bg-gray-400 rounded-xs"></div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-24 h-16 bg-white rounded shadow-xs border border-gray-200 p-2 flex items-center justify-between group-hover:scale-105 transition-transform">
-                    <div className="flex flex-col gap-1">
-                      <div className="w-10 h-1.5 bg-warning-600 rounded-xs"></div>
-                      <div className="w-8 h-1 bg-gray-300 rounded-xs"></div>
-                      <div className="w-12 h-1 bg-gray-200 rounded-xs"></div>
-                    </div>
-                    <span className="material-symbols-outlined text-[20px] text-gray-700">qr_code_2</span>
-                  </div>
-                )}
-                <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-white/90 border border-border font-caption text-[11px] text-gray-500 font-mono">
-                  {template.version}
+                Create Template
+              </button>
+            </>
+          ) : (
+            <p className="text-gray-500 text-body-sm">No templates match your filter.</p>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((t) => (
+            <div
+              key={t.id}
+              className="bg-surface-card border border-border rounded-xl p-5 flex flex-col gap-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-heading text-heading text-gray-700 font-semibold truncate">
+                  {t.title}
+                </h3>
+                <span className="font-caption text-caption bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                  {t.status}
                 </span>
               </div>
-
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-heading-sm text-heading-sm text-gray-700 font-medium group-hover:text-brand-600 transition-colors">
-                    {template.title}
-                  </h3>
-                  <p className="font-caption text-caption text-gray-400 mt-1 line-clamp-2">
-                    {template.description}
-                  </p>
-                </div>
-              </div>
-
-              {/* Dynamic Variables list */}
-              <div className="mt-3 flex flex-wrap gap-1">
-                {template.variables.slice(0, 3).map((v) => (
-                  <span
-                    key={v}
-                    className="font-caption text-[10px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded"
-                  >
-                    {v}
-                  </span>
-                ))}
-                {template.variables.length > 3 && (
-                  <span className="font-caption text-[10px] font-mono bg-gray-100 text-gray-500 px-1 py-0.5 rounded">
-                    +{template.variables.length - 3}
+              {t.description && (
+                <p className="text-body-sm text-gray-500 line-clamp-2">{t.description}</p>
+              )}
+              <div className="flex flex-wrap gap-1">
+                {t.variables.length === 0 ? (
+                  <span className="text-caption text-gray-400">No variables</span>
+                ) : (
+                  t.variables.slice(0, 5).map((v) => (
+                    <span
+                      key={v}
+                      className="font-caption text-caption bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-mono"
+                    >
+                      {`{{${v}}}`}
+                    </span>
+                  ))
+                )}
+                {t.variables.length > 5 && (
+                  <span className="font-caption text-caption text-gray-500">
+                    +{t.variables.length - 5} more
                   </span>
                 )}
               </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-border flex items-center justify-between font-caption text-caption text-gray-500">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-success-500"></span>
-                <span>{template.renders} renders</span>
-              </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-1">
                 <button
-                  onClick={() => router.push('/dashboard/builder')}
-                  className="hover:text-brand-600 font-label text-label cursor-pointer"
+                  onClick={() => setRenderTarget(t)}
+                  className="h-8 px-3 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-label text-label flex items-center gap-1.5"
                 >
-                  Edit Schema
+                  <span className="material-symbols-outlined text-[15px]">play_arrow</span>
+                  Render
                 </button>
-                <span className="text-gray-300">•</span>
                 <button
-                  onClick={() => setActiveModalTemplate(template)}
-                  className="hover:text-brand-600 font-label text-label text-brand-600 font-medium cursor-pointer"
+                  onClick={() => openEdit(t)}
+                  disabled={busy}
+                  className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  Test Render
+                  <span className="material-symbols-outlined text-[15px]">edit</span>
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(t.id)}
+                  className="h-8 px-3 rounded-lg border border-border hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-gray-600 font-label text-label flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[15px]">delete</span>
+                  Delete
                 </button>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Community Blueprints Section */}
-      <div className="flex flex-col gap-4 mt-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-heading text-heading text-gray-700 font-semibold">
-              Community PDF Blueprints
-            </h2>
-            <p className="font-body-sm text-body-sm text-gray-500">
-              One-click clone vector-optimized templates into your workspace.
-            </p>
-          </div>
-          <div className="flex items-center gap-1">
-            {['All', 'Legal', 'Finance', 'Logistics'].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedBlueprintCategory(cat)}
-                className={`px-2.5 py-1 rounded text-caption font-label cursor-pointer ${
-                  selectedBlueprintCategory === cat
-                    ? 'bg-brand-50 text-brand-600 font-medium'
-                    : 'text-gray-500 hover:bg-surface-hover'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {blueprints
-            .filter(
-              (bp) =>
-                selectedBlueprintCategory === 'All' ||
-                bp.category === selectedBlueprintCategory
-            )
-            .map((bp) => (
-              <div
-                key={bp.id}
-                className="bg-surface-card border border-border rounded-xl p-4 flex flex-col justify-between shadow-xs hover:border-brand-400 transition-all"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-caption text-[11px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-mono">
-                      {bp.category}
-                    </span>
-                    <span className="font-caption text-[11px] text-gray-400">
-                      ★ {bp.downloads} installs
-                    </span>
-                  </div>
-                  <h3 className="font-heading-sm text-heading-sm text-gray-700 font-medium">
-                    {bp.title}
-                  </h3>
-                  <p className="font-caption text-caption text-gray-500 mt-1">
-                    {bp.description}
-                  </p>
+      {creating && (
+        <TemplateFormModal
+          mode="create"
+          onClose={() => setCreating(false)}
+          onSaved={(t) => {
+            setCreating(false);
+            setTemplates((prev) => [t, ...prev]);
+          }}
+        />
+      )}
 
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {bp.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="font-caption text-[10px] bg-surface-page border border-border text-gray-600 px-1.5 py-0.5 rounded"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+      {editing && (
+        <TemplateFormModal
+          mode="edit"
+          template={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(t) => {
+            setEditing(null);
+            setTemplates((prev) => prev.map((x) => (x.id === t.id ? t : x)));
+          }}
+        />
+      )}
 
-                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-                  <span className="font-caption text-caption text-gray-400">by {bp.author}</span>
-                  <button
-                    onClick={() => handleClone(bp)}
-                    className="h-7 px-2.5 rounded bg-brand-50 hover:bg-brand-100 text-brand-700 font-label text-caption font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">content_copy</span>
-                    <span>Clone Template</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-        </div>
-      </div>
-
-      {/* Render Preview Modal */}
       <TemplateRendererModal
-        template={activeModalTemplate}
-        isOpen={Boolean(activeModalTemplate)}
-        onClose={() => setActiveModalTemplate(null)}
+        template={renderTarget}
+        isOpen={!!renderTarget}
+        onClose={() => setRenderTarget(null)}
       />
     </div>
+  );
+}
+
+interface TemplateFormProps {
+  mode: "create" | "edit";
+  template?: TemplateWithHtml;
+  onClose: () => void;
+  onSaved: (t: Template) => void;
+}
+
+function TemplateFormModal({ mode, template, onClose, onSaved }: TemplateFormProps) {
+  const [title, setTitle] = useState(template?.title || "");
+  const [description, setDescription] = useState(template?.description || "");
+  const [variablesRaw, setVariablesRaw] = useState((template?.variables || ["placeholder_1"]).join(", "));
+  const [html, setHtml] = useState(template?.html || STARTER_HTML);
+  const [status, setStatus] = useState<Template["status"]>(template?.status || "active");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const variables = variablesRaw
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (mode === "create") {
+        const input: CreateTemplateInput = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          variables,
+          html,
+          status,
+        };
+        const { template: created } = await createTemplate(input);
+        onSaved(created);
+      } else {
+        const input: UpdateTemplateInput = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          variables,
+          html,
+          status,
+        };
+        const { template: updated } = await updateTemplate(template!.id, input);
+        onSaved(updated);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-3xl bg-surface-card rounded-2xl border border-border shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="font-heading text-heading text-gray-700 font-semibold">
+            {mode === "create" ? "New Template" : `Edit: ${template?.title}`}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 p-1"
+            aria-label="Close"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="px-6 py-4 flex-1 overflow-y-auto flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="font-label text-label text-gray-600">Title *</label>
+                <input
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-border bg-gray-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="e.g. Invoice Template"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="font-label text-label text-gray-600">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as Template["status"])}
+                  className="h-9 px-3 rounded-lg border border-border bg-gray-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="draft">Draft</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="font-label text-label text-gray-600">Description</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="h-9 px-3 rounded-lg border border-border bg-gray-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="Optional short description"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="font-label text-label text-gray-600">Variables</label>
+              <input
+                value={variablesRaw}
+                onChange={(e) => setVariablesRaw(e.target.value)}
+                className="h-9 px-3 rounded-lg border border-border bg-gray-0 text-gray-700 font-mono text-body-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="comma, separated, names"
+              />
+              <p className="text-caption text-gray-500">
+                Comma-separated names used inside <code className="font-mono">{`{{name}}`}</code> placeholders.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1 flex-1 min-h-[200px]">
+              <label className="font-label text-label text-gray-600">HTML</label>
+              <textarea
+                required
+                value={html}
+                onChange={(e) => setHtml(e.target.value)}
+                spellCheck={false}
+                className="flex-1 min-h-[260px] px-3 py-2 rounded-lg border border-border bg-surface-page text-gray-700 font-mono text-body-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="<!DOCTYPE html>..."
+              />
+            </div>
+            {error && (
+              <div className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-body-sm border border-red-200">
+                {error}
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-3 border-t border-border flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 px-4 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="h-9 px-4 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-label text-label font-medium disabled:opacity-60"
+            >
+              {submitting ? "Saving..." : mode === "create" ? "Create" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function TemplatesPage() {
+  return (
+    <DashboardLayout>
+      <TemplatesInner />
+    </DashboardLayout>
   );
 }

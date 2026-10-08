@@ -1,69 +1,92 @@
-import React from 'react';
-import { RouterProvider, usePathname } from './lib/router';
-import RootLayout from './app/layout';
-import LoginPage from './app/login/page';
-import SignupPage from './app/signup/page';
-import { DashboardLayout } from './app/dashboard/layout';
-import DashboardPage from './app/dashboard/page';
-import IntegrationsPage from './app/dashboard/integrations/page';
-import SettingsPage from './app/dashboard/settings/page';
-import TemplateBuilderPage from './app/dashboard/builder/page';
-import TemplatesPage from './app/dashboard/templates/page';
+import React, { useEffect } from "react";
+import { RouterProvider, usePathname, useRouter } from "./lib/router";
+import { AuthProvider, useAuth } from "./lib/authContext";
+import RootLayout from "./app/layout";
+import LoginPage from "./app/login/page";
+import RegisterPage from "./app/register/page";
+import DashboardPage from "./app/dashboard/page";
+import TemplatesPage from "./app/dashboard/templates/page";
+
+function Protected({ children }: { children: React.ReactNode }) {
+  const auth = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    if (!auth.isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [auth.isAuthenticated, router]);
+  if (!auth.isAuthenticated) return null;
+  return <>{children}</>;
+}
 
 function AppContent() {
   const pathname = usePathname();
+  const auth = useAuth();
+  const router = useRouter();
 
-  // Route resolver mirroring Next.js App Router file-based system
-  const renderRoute = () => {
-    if (pathname === '/login') {
-      return <LoginPage />;
+  useEffect(() => {
+    if (pathname === "/" || pathname === "") {
+      router.replace(auth.isAuthenticated ? "/dashboard" : "/login");
     }
-    if (pathname === '/signup') {
-      return <SignupPage />;
+  }, [pathname, auth.isAuthenticated, router]);
+
+  if (pathname === "/login") {
+    if (auth.isAuthenticated) {
+      router.replace("/dashboard");
+      return null;
     }
-    if (pathname.startsWith('/dashboard/templates')) {
-      return (
-        <DashboardLayout>
-          <TemplatesPage />
-        </DashboardLayout>
-      );
-    }
-    if (pathname.startsWith('/dashboard/integrations')) {
-      return (
-        <DashboardLayout>
-          <IntegrationsPage />
-        </DashboardLayout>
-      );
-    }
-    if (pathname.startsWith('/dashboard/settings')) {
-      return (
-        <DashboardLayout>
-          <SettingsPage />
-        </DashboardLayout>
-      );
-    }
-    if (pathname.startsWith('/dashboard/builder')) {
-      return (
-        <DashboardLayout>
-          <TemplateBuilderPage />
-        </DashboardLayout>
-      );
-    }
-    // Default dashboard and /dashboard/templates
     return (
-      <DashboardLayout>
-        <DashboardPage />
-      </DashboardLayout>
+      <RootLayout>
+        <LoginPage />
+      </RootLayout>
     );
-  };
+  }
 
-  return <RootLayout>{renderRoute()}</RootLayout>;
+  if (pathname === "/register") {
+    if (auth.isAuthenticated) {
+      router.replace("/dashboard");
+      return null;
+    }
+    return (
+      <RootLayout>
+        <RegisterPage />
+      </RootLayout>
+    );
+  }
+
+  if (pathname.startsWith("/dashboard/templates")) {
+    return (
+      <Protected>
+        <RootLayout>
+          <TemplatesPage />
+        </RootLayout>
+      </Protected>
+    );
+  }
+
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard")) {
+    return (
+      <Protected>
+        <RootLayout>
+          <DashboardPage />
+        </RootLayout>
+      </Protected>
+    );
+  }
+
+  return (
+    <RootLayout>
+      <div className="p-8 text-gray-700">Page not found.</div>
+    </RootLayout>
+  );
 }
 
 export default function App() {
   return (
     <RouterProvider>
-      <AppContent />
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
     </RouterProvider>
   );
 }
