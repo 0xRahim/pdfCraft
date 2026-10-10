@@ -46,6 +46,20 @@ export interface RenderResponse {
   size: number;
 }
 
+export interface ApiToken {
+  id: string;
+  templateId: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface CreatedApiToken extends ApiToken {
+  /** Plaintext secret — returned ONLY once at creation. Store it securely. */
+  token: string;
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -167,6 +181,35 @@ export async function deleteTemplate(id: string): Promise<void> {
   await request<unknown>(`/api/templates/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export async function listApiTokens(templateId: string): Promise<{ tokens: ApiToken[] }> {
+  return request<{ tokens: ApiToken[] }>(`/api/templates/${encodeURIComponent(templateId)}/tokens`);
+}
+
+export async function createApiToken(
+  templateId: string,
+  name: string
+): Promise<{ token: CreatedApiToken }> {
+  return request<{ token: CreatedApiToken }>(`/api/templates/${encodeURIComponent(templateId)}/tokens`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function revokeApiToken(templateId: string, tokenId: string): Promise<void> {
+  await request<unknown>(
+    `/api/templates/${encodeURIComponent(templateId)}/tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function buildPublicRenderUrl(templateId: string): string {
+  return `${API_BASE}/api/public/render/${encodeURIComponent(templateId)}`;
+}
+
+export function buildPublicRendersBase(): string {
+  return `${API_BASE}/api/public/renders`;
 }
 
 export async function renderTemplate(

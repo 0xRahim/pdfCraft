@@ -6,6 +6,7 @@ import LoginPage from "./app/login/page";
 import RegisterPage from "./app/register/page";
 import DashboardPage from "./app/dashboard/page";
 import TemplatesPage from "./app/dashboard/templates/page";
+import LandingPage from "./app/landing/page";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
@@ -25,10 +26,19 @@ function AppContent() {
   const router = useRouter();
 
   useEffect(() => {
-    if (pathname === "/" || pathname === "") {
-      router.replace(auth.isAuthenticated ? "/dashboard" : "/login");
+    if (pathname === "") {
+      router.replace("/");
     }
-  }, [pathname, auth.isAuthenticated, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  if (pathname === "/" || pathname === "") {
+    return (
+      <RootLayout>
+        <LandingPage />
+      </RootLayout>
+    );
+  }
 
   if (pathname === "/login") {
     if (auth.isAuthenticated) {

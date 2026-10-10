@@ -15,6 +15,16 @@ import {
 import { useAuth } from "../../../lib/authContext";
 import { DashboardLayout } from "../layout";
 import { TemplateRendererModal } from "../../../components/TemplateRendererModal";
+import { ApiTokenModal } from "../../../components/ApiTokenModal";
+import {
+  SampleDataEditor,
+  TemplatePreview,
+  TemplatePreviewModal,
+  applySampleData,
+  buildDefaultSamples,
+  checkNoActiveContent,
+  extractPlaceholders,
+} from "../../../components/TemplatePreview";
 
 const STARTER_HTML = `<!DOCTYPE html>
 <html>
@@ -35,6 +45,8 @@ function TemplatesInner() {
   const [editing, setEditing] = useState<TemplateWithHtml | null>(null);
   const [creating, setCreating] = useState(false);
   const [renderTarget, setRenderTarget] = useState<Template | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<TemplateWithHtml | null>(null);
+  const [apiTarget, setApiTarget] = useState<Template | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -76,6 +88,18 @@ function TemplatesInner() {
       setEditing(template);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to load template");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPreview = async (t: Template) => {
+    setBusy(true);
+    try {
+      const { template } = await getTemplate(t.id);
+      setPreviewTarget(template);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to load preview");
     } finally {
       setBusy(false);
     }
@@ -210,6 +234,21 @@ function TemplatesInner() {
                   Render
                 </button>
                 <button
+                  onClick={() => openPreview(t)}
+                  disabled={busy}
+                  className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[15px]">visibility</span>
+                  Preview
+                </button>
+                <button
+                  onClick={() => setApiTarget(t)}
+                  className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[15px]">key</span>
+                  API
+                </button>
+                <button
                   onClick={() => openEdit(t)}
                   disabled={busy}
                   className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-700 font-label text-label flex items-center gap-1.5 disabled:opacity-50"
@@ -258,6 +297,18 @@ function TemplatesInner() {
         isOpen={!!renderTarget}
         onClose={() => setRenderTarget(null)}
       />
+
+      <TemplatePreviewModal
+        template={previewTarget}
+        isOpen={!!previewTarget}
+        onClose={() => setPreviewTarget(null)}
+      />
+
+      <ApiTokenModal
+        template={apiTarget}
+        isOpen={!!apiTarget}
+        onClose={() => setApiTarget(null)}
+      />
     </div>
   );
 }
@@ -277,6 +328,21 @@ function TemplateFormModal({ mode, template, onClose, onSaved }: TemplateFormPro
   const [status, setStatus] = useState<Template["status"]>(template?.status || "active");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"edit" | "preview">("edit");
+  const [samples, setSamples] = useState<Record<string, string> | null>(null);
+
+  const declaredVars = variablesRaw
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const detectedVars = extractPlaceholders(html);
+  const allKeys = [...new Set([...declaredVars, ...detectedVars])];
+  const effectiveSamples = samples ?? buildDefaultSamples(allKeys);
+  // Keep sample keys in sync when variables change (preserve edited values)
+  const syncedSamples: Record<string, string> = {};
+  for (const k of allKeys) syncedSamples[k] = effectiveSamples[k] ?? `Sample ${k}`;
+  const xssCheck = checkNoActiveContent(html);
+  const previewHtml = applySampleData(html, syncedSamples);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,19 +383,38 @@ function TemplateFormModal({ mode, template, onClose, onSaved }: TemplateFormPro
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="w-full max-w-3xl bg-surface-card rounded-2xl border border-border shadow-2xl flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="font-heading text-heading text-gray-700 font-semibold">
+      <div className="w-full max-w-5xl bg-surface-card rounded-2xl border border-border shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border gap-4">
+          <h2 className="font-heading text-heading text-gray-700 font-semibold truncate">
             {mode === "create" ? "New Template" : `Edit: ${template?.title}`}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1"
-            aria-label="Close"
-          >
-            <span className="material-symbols-outlined">close</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setTab("edit")}
+                className={`h-8 px-3 font-label text-label ${tab === "edit" ? "bg-brand-500 text-white" : "text-gray-600 hover:bg-surface-hover"}`}
+              >
+                Edit HTML
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("preview")}
+                className={`h-8 px-3 font-label text-label flex items-center gap-1 ${tab === "preview" ? "bg-brand-500 text-white" : "text-gray-600 hover:bg-surface-hover"}`}
+              >
+                <span className="material-symbols-outlined text-[15px]">visibility</span>
+                Preview
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 p-1"
+              aria-label="Close"
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+          </div>
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="px-6 py-4 flex-1 overflow-y-auto flex flex-col gap-4">
@@ -378,17 +463,48 @@ function TemplateFormModal({ mode, template, onClose, onSaved }: TemplateFormPro
                 Comma-separated names used inside <code className="font-mono">{`{{name}}`}</code> placeholders.
               </p>
             </div>
-            <div className="flex flex-col gap-1 flex-1 min-h-[200px]">
-              <label className="font-label text-label text-gray-600">HTML</label>
-              <textarea
-                required
-                value={html}
-                onChange={(e) => setHtml(e.target.value)}
-                spellCheck={false}
-                className="flex-1 min-h-[260px] px-3 py-2 rounded-lg border border-border bg-surface-page text-gray-700 font-mono text-body-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="<!DOCTYPE html>..."
-              />
-            </div>
+            {!xssCheck.ok && (
+              <div className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-body-sm border border-red-200">
+                Blocked: {xssCheck.reason} JavaScript is not allowed — remove it before saving.
+              </div>
+            )}
+            {tab === "edit" ? (
+              <div className="flex flex-col gap-1 flex-1 min-h-[200px]">
+                <label className="font-label text-label text-gray-600">HTML</label>
+                <textarea
+                  required
+                  value={html}
+                  onChange={(e) => setHtml(e.target.value)}
+                  spellCheck={false}
+                  className="flex-1 min-h-[260px] px-3 py-2 rounded-lg border border-border bg-surface-page text-gray-700 font-mono text-body-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="<!DOCTYPE html>..."
+                />
+                <p className="text-caption text-gray-500">
+                  No JavaScript allowed: no <code className="font-mono">{"<script>"}</code>, event handlers
+                  (onclick…), or javascript: URLs. Preview is sandboxed.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="font-label text-label text-gray-600">Sample data</label>
+                    <button
+                      type="button"
+                      onClick={() => setSamples(buildDefaultSamples(allKeys))}
+                      className="font-label text-label text-brand-600 hover:text-brand-700"
+                    >
+                      Reset samples
+                    </button>
+                  </div>
+                  <SampleDataEditor samples={syncedSamples} onChange={setSamples} />
+                </div>
+                <div>
+                  <label className="font-label text-label text-gray-600 block mb-2">Preview (sandboxed)</label>
+                  <TemplatePreview html={previewHtml} />
+                </div>
+              </div>
+            )}
             {error && (
               <div className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-body-sm border border-red-200">
                 {error}

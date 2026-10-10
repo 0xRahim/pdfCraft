@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, Link } from "../../lib/router";
-import { ApiError, Template, deleteTemplate, listTemplates } from "../../lib/api";
+import { ApiError, Template, TemplateWithHtml, deleteTemplate, getTemplate, listTemplates } from "../../lib/api";
 import { useAuth } from "../../lib/authContext";
 import { DashboardLayout } from "./layout";
 import { TemplateRendererModal } from "../../components/TemplateRendererModal";
+import { TemplatePreviewModal } from "../../components/TemplatePreview";
+import { ApiTokenModal } from "../../components/ApiTokenModal";
 
 function DashboardInner() {
   const router = useRouter();
@@ -12,6 +14,21 @@ function DashboardInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [renderTarget, setRenderTarget] = useState<Template | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<TemplateWithHtml | null>(null);
+  const [apiTarget, setApiTarget] = useState<Template | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
+  const openPreview = async (t: Template) => {
+    setPreviewBusy(true);
+    try {
+      const { template } = await getTemplate(t.id);
+      setPreviewTarget(template);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to load preview");
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -165,6 +182,21 @@ function DashboardInner() {
                     Render
                   </button>
                   <button
+                    onClick={() => openPreview(t)}
+                    disabled={previewBusy}
+                    className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-600 font-label text-label flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">visibility</span>
+                    Preview
+                  </button>
+                  <button
+                    onClick={() => setApiTarget(t)}
+                    className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-600 font-label text-label flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">key</span>
+                    API
+                  </button>
+                  <button
                     onClick={() => handleDelete(t.id)}
                     className="h-8 px-3 rounded-lg border border-border hover:bg-surface-hover text-gray-600 font-label text-label flex items-center gap-1.5"
                   >
@@ -182,6 +214,18 @@ function DashboardInner() {
         template={renderTarget}
         isOpen={!!renderTarget}
         onClose={() => setRenderTarget(null)}
+      />
+
+      <TemplatePreviewModal
+        template={previewTarget}
+        isOpen={!!previewTarget}
+        onClose={() => setPreviewTarget(null)}
+      />
+
+      <ApiTokenModal
+        template={apiTarget}
+        isOpen={!!apiTarget}
+        onClose={() => setApiTarget(null)}
       />
     </div>
   );

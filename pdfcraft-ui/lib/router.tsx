@@ -9,7 +9,7 @@ interface RouterContextType {
 }
 
 const RouterContext = createContext<RouterContextType>({
-  pathname: '/dashboard',
+  pathname: '/',
   searchParams: new URLSearchParams(),
   push: () => {},
   replace: () => {},
@@ -61,9 +61,9 @@ export const Link: React.FC<LinkProps> = ({ href, children, onClick, ...props })
 
 export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const getInitialPath = () => {
-    if (typeof window === 'undefined') return '/dashboard';
+    if (typeof window === 'undefined') return '/';
     const path = window.location.pathname;
-    if (path === '/' || path === '') return '/dashboard';
+    if (path === '') return '/';
     return path;
   };
 
@@ -75,8 +75,8 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     const handleLocationChange = () => {
       let path = window.location.pathname;
-      if (path === '' || path === '/') {
-        path = '/dashboard';
+      if (path === '') {
+        path = '/';
       }
       setPathname(path);
       setSearchParams(new URLSearchParams(window.location.search));
@@ -88,7 +88,7 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const push = useCallback((href: string) => {
     const [path, search] = href.split('?');
-    const normalizedPath = path || '/dashboard';
+    const normalizedPath = path || '/';
     window.history.pushState(null, '', href);
     setPathname(normalizedPath);
     setSearchParams(new URLSearchParams(search || ''));
@@ -97,7 +97,7 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const replace = useCallback((href: string) => {
     const [path, search] = href.split('?');
-    const normalizedPath = path || '/dashboard';
+    const normalizedPath = path || '/';
     window.history.replaceState(null, '', href);
     setPathname(normalizedPath);
     setSearchParams(new URLSearchParams(search || ''));

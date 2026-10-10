@@ -33,6 +33,17 @@ export function getDb(): Database {
       size INTEGER NOT NULL,
       createdAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      templateId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      tokenHash TEXT UNIQUE NOT NULL,
+      prefix TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      lastUsedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_template ON api_tokens(templateId);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(tokenHash);
   `);
   return db;
 }
@@ -42,6 +53,36 @@ export interface DbUser {
   email: string;
   password_hash: string;
   createdAt: string;
+}
+
+export interface DbApiToken {
+  id: string;
+  templateId: string;
+  name: string;
+  tokenHash: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface PublicApiToken {
+  id: string;
+  templateId: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export function toPublicApiToken(row: DbApiToken): PublicApiToken {
+  return {
+    id: row.id,
+    templateId: row.templateId,
+    name: row.name,
+    prefix: row.prefix,
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+  };
 }
 
 export interface DbTemplate {

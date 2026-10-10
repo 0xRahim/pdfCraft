@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, statSync, createReadStream } from "node:fs";
 import { join, basename } from "node:path";
 import { getDb, type DbTemplate } from "../db.ts";
 import { authMiddleware, type AuthRequest } from "../auth.ts";
+import { applyVariables, sanitizeForRender } from "../sanitize.ts";
+import { getBrowser } from "../browser.ts";
 
 export const renderRouter = Router();
 
@@ -11,42 +13,6 @@ function renderDir(): string {
   const dir = process.env.RENDER_DIR || "./storage/renders";
   mkdirSync(dir, { recursive: true });
   return dir;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function applyVariables(html: string, data: Record<string, string>): string {
-  let out = html;
-  for (const [key, value] of Object.entries(data)) {
-    const re = new RegExp(`{{\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*}}`, "g");
-    out = out.replace(re, escapeHtml(value ?? ""));
-  }
-  return out;
-}
-
-let browserPromise: Promise<import("puppeteer").Browser> | null = null;
-async function getBrowser() {
-  if (!browserPromise) {
-    const puppeteer = await import("puppeteer");
-    const executablePath =
-      process.env.PUPPETEER_EXECUTABLE_PATH ||
-      process.env.CHROME_PATH ||
-      "/usr/bin/chromium";
-    const { existsSync: exists } = await import("node:fs");
-    browserPromise = puppeteer.launch({
-      headless: true,
-      ...(exists(executablePath) ? { executablePath } : {}),
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-    });
-  }
-  return browserPromise;
 }
 
 const renderSchema = z.object({
@@ -77,7 +43,8 @@ renderRouter.post("/:id", authMiddleware, async (req: AuthRequest, res) => {
     return res.status(400).json({ missing, error: "Missing required variables", message: "Missing required variables" });
   }
 
-  const html = applyVariables(row.html, data);
+  // Defense-in-depth: strip active content from pre-existing templates, then substitute escaped values.
+  const html = applyVariables(sanitizeForRender(row.html), data);
   const file = `${crypto.randomUUID()}.pdf`;
   const outPath = join(renderDir(), file);
 
@@ -85,6 +52,8 @@ renderRouter.post("/:id", authMiddleware, async (req: AuthRequest, res) => {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
+      // PDFs don't need JS — disabling it neutralizes any sanitizer bypass during render.
+      await page.setJavaScriptEnabled(false);
       await page.setContent(html, { waitUntil: "networkidle0", timeout: 15000 });
       await page.pdf({ path: outPath, format: "A4", printBackground: true });
     } finally {

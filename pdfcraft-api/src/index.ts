@@ -6,6 +6,7 @@ import { seedDemoUser } from "./auth.ts";
 import { authRouter } from "./routes/auth.ts";
 import { templatesRouter } from "./routes/templates.ts";
 import { renderRouter } from "./routes/render.ts";
+import { publicRenderRouter } from "./routes/publicRender.ts";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3001);
@@ -35,6 +36,8 @@ app.use("/api/templates", templatesRouter);
 // renderRouter handles both POST /api/render/:id and GET /api/renders/:file
 app.use("/api/render", renderRouter);
 app.use("/api/renders", renderRouter);
+// publicRenderRouter carries absolute paths for /api/public/... (token auth, no JWT)
+app.use("/", publicRenderRouter);
 
 // JSON 404 for unknown /api routes (keeps ApiError.message working)
 app.use("/api", (_req, res) => res.status(404).json({ message: "Not found" }));

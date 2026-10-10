@@ -7,6 +7,13 @@ import {
   type DbTemplate,
 } from "../db.ts";
 import { authMiddleware } from "../auth.ts";
+import { assertNoActiveContent } from "../sanitize.ts";
+import {
+  createApiToken,
+  deleteApiTokensForTemplate,
+  listApiTokens,
+  revokeApiToken,
+} from "../apiTokens.ts";
 
 export const templatesRouter = Router();
 
@@ -50,6 +57,10 @@ templatesRouter.post("/", (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid input" });
   }
+  const xss = assertNoActiveContent(parsed.data.html);
+  if (!xss.ok) {
+    return res.status(400).json({ message: `JavaScript is not allowed in templates: ${xss.reason}` });
+  }
   const db = getDb();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
@@ -91,12 +102,53 @@ templatesRouter.put("/:id", (req, res) => {
       ? [...new Set(parsed.data.variables.map((v) => v.trim()).filter(Boolean))]
       : JSON.parse(row.variables);
   const html = parsed.data.html !== undefined ? parsed.data.html : row.html;
+  if (parsed.data.html !== undefined) {
+    const xssUpdate = assertNoActiveContent(parsed.data.html);
+    if (!xssUpdate.ok) {
+      return res.status(400).json({ message: `JavaScript is not allowed in templates: ${xssUpdate.reason}` });
+    }
+  }
   const status = parsed.data.status ?? row.status;
   db.query(
     "UPDATE templates SET title = ?, description = ?, variables = ?, html = ?, status = ?, updatedAt = ? WHERE id = ?"
   ).run(title, description, JSON.stringify(variables), html, status, now, row.id);
   const finalRow = db.query("SELECT * FROM templates WHERE id = ?").get(row.id) as DbTemplate;
   return res.json({ template: toPublicTemplate(finalRow) });
+});
+
+const tokenNameSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80),
+});
+
+// POST /:id/tokens — create a per-template API token (plaintext returned once)
+templatesRouter.post("/:id/tokens", (req, res) => {
+  const db = getDb();
+  const row = db.query("SELECT * FROM templates WHERE id = ?").get(req.params.id) as DbTemplate | null;
+  if (!row) return res.status(404).json({ message: "Template not found" });
+  const parsed = tokenNameSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid input" });
+  }
+  const { row: tokenRow, plaintext } = createApiToken(row.id, parsed.data.name.trim());
+  return res.status(201).json({ token: { ...tokenRow, token: plaintext } });
+});
+
+// GET /:id/tokens — list token metadata (never plaintext)
+templatesRouter.get("/:id/tokens", (req, res) => {
+  const db = getDb();
+  const row = db.query("SELECT * FROM templates WHERE id = ?").get(req.params.id) as DbTemplate | null;
+  if (!row) return res.status(404).json({ message: "Template not found" });
+  return res.json({ tokens: listApiTokens(row.id) });
+});
+
+// DELETE /:id/tokens/:tokenId — revoke a token
+templatesRouter.delete("/:id/tokens/:tokenId", (req, res) => {
+  const db = getDb();
+  const row = db.query("SELECT * FROM templates WHERE id = ?").get(req.params.id) as DbTemplate | null;
+  if (!row) return res.status(404).json({ message: "Template not found" });
+  const ok = revokeApiToken(row.id, req.params.tokenId);
+  if (!ok) return res.status(404).json({ message: "Token not found" });
+  return res.status(204).send();
 });
 
 templatesRouter.delete("/:id", (req, res) => {
@@ -106,5 +158,6 @@ templatesRouter.delete("/:id", (req, res) => {
   } | null;
   if (!row) return res.status(404).json({ message: "Template not found" });
   db.query("DELETE FROM templates WHERE id = ?").run(req.params.id);
+  deleteApiTokensForTemplate(req.params.id);
   return res.status(204).send();
 });
